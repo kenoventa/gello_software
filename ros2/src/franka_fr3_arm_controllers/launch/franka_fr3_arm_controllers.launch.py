@@ -13,9 +13,14 @@
 #  limitations under the License.
 
 import os
+
 import yaml
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
@@ -69,7 +74,11 @@ def generate_robot_nodes(context):
                 package="controller_manager",
                 executable="spawner",
                 namespace=namespace,
-                arguments=["joint_impedance_controller", "--controller-manager-timeout", "30"],
+                arguments=[
+                    "joint_impedance_controller",
+                    "--controller-manager-timeout",
+                    "30",
+                ],
                 parameters=[
                     PathJoinSubstitution(
                         [
@@ -82,7 +91,10 @@ def generate_robot_nodes(context):
                 output="screen",
             )
         )
-    if any(str(config.get("use_rviz", "false")).lower() == "true" for config in configs.values()):
+    if any(
+        str(config.get("use_rviz", "false")).lower() == "true"
+        for config in configs.values()
+    ):
         nodes.append(
             Node(
                 package="rviz2",

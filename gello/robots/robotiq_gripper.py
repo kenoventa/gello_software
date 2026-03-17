@@ -108,11 +108,12 @@ class RobotiqGripper:
         """
         return self._set_vars(OrderedDict([(variable, value)]))
 
-    def _get_var(self, variable: str):
+    def _get_var(self, variable: str, ignore_error: bool = False):
         """Sends the appropriate command to retrieve the value of a variable from the gripper, blocking until the response is received or the socket times out.
 
         :param variable: Name of the variable to retrieve.
-        :return: Value of the variable as integer.
+        :param ignore_error: If True, return -1 instead of raising error on '?' response.
+        :return: Value of the variable as integer, or -1 if ignore_error=True and gripper returns '?'.
         """
         assert self.socket is not None
         # atomic commands send/rcv
@@ -127,6 +128,13 @@ class RobotiqGripper:
         if var_name != variable:
             raise ValueError(
                 f"Unexpected response {data} ({data.decode(self.ENCODING)}): does not match '{variable}'"
+            )
+        if value_str == "?":
+            if ignore_error:
+                return -1
+            raise ValueError(
+                f"Gripper returned error code '?' for variable '{variable}'. "
+                f"The gripper may not be properly initialized. Try calling gripper.activate() to initialize the gripper."
             )
         value = int(value_str)
         return value
@@ -154,9 +162,15 @@ class RobotiqGripper:
         """
         self._set_var(self.ACT, 0)
         self._set_var(self.ATR, 0)
-        while not self._get_var(self.ACT) == 0 or not self._get_var(self.STA) == 0:
+        # Use ignore_error=True for checks during reset, as gripper may not be responding properly yet
+        for _ in range(10):  # retry up to 10 times
+            act_val = self._get_var(self.ACT, ignore_error=True)
+            sta_val = self._get_var(self.STA, ignore_error=True)
+            if act_val == 0 and sta_val == 0:
+                break
             self._set_var(self.ACT, 0)
             self._set_var(self.ATR, 0)
+            time.sleep(0.05)
         time.sleep(0.5)
 
     def activate(self, auto_calibrate: bool = True):
@@ -192,25 +206,73 @@ class RobotiqGripper:
         end
         """
         if not self.is_active():
+            print("  → Resetting gripper...")
             self._reset()
-            while not self._get_var(self.ACT) == 0 or not self._get_var(self.STA) == 0:
-                time.sleep(0.01)
+            print("  → Waiting for reset...")
+            for _ in range(10):
+                act_val = self._get_var(self.ACT, ignore_error=True)
+                sta_val = self._get_var(self.STA, ignore_error=True)
+                if act_val == 0 and sta_val == 0:
+                    break
+                time.sleep(0.05)
 
+            print("  → Setting ACT=1...")
             self._set_var(self.ACT, 1)
-            time.sleep(1.0)
-            while not self._get_var(self.ACT) == 1 or not self._get_var(self.STA) == 3:
-                time.sleep(0.01)
+            print("  → Waiting for activation...")
+            time.sleep(1.5)
+            for i in range(100):
+                act_val = self._get_var(self.ACT, ignore_error=True)
+                sta_val = self._get_var(self.STA, ignore_error=True)
+                if act_val == 1 and sta_val == 3:
+                    print("  → Gripper activated!")
+                    break
+                time.sleep(0.02)
 
         # auto-calibrate position range if desired
         if auto_calibrate:
             self.auto_calibrate()
 
     def is_active(self):
-        """Returns whether the gripper is active."""
-        status = self._get_var(self.STA)
-        return (
-            RobotiqGripper.GripperStatus(status) == RobotiqGripper.GripperStatus.ACTIVE
-        )
+        """Returns whether the gripper is active. Returns False if gripper returns error."""
+        try:
+            status = self._get_var(self.STA)
+            return (
+                RobotiqGripper.GripperStatus(status)
+                == RobotiqGripper.GripperStatus.ACTIVE
+            )
+        except ValueError:
+            # Gripper returned error '?', consider it not active
+            return False
+
+    def _ensure_active(self):
+        """Ensures gripper is active. Activates if not already active."""
+        try:
+            if not self.is_active():
+                print("Gripper not active, attempting to activate...", flush=True)
+                # Use retry logic to handle flaky gripper state
+                for attempt in range(3):
+                    try:
+                        self.activate(auto_calibrate=False)
+                        print("  → Activation successful!", flush=True)
+                        return
+                    except ValueError as e:
+                        print(f"  → Attempt {attempt+1} failed: {e}", flush=True)
+                        if attempt < 2:
+                            time.sleep(0.5)
+                raise ValueError("Failed to activate gripper after 3 attempts")
+        except ValueError as e:
+            print(f"Gripper error: {e}", flush=True)
+            print("Attempting emergency reset...", flush=True)
+            # Last resort: try to send reset command directly
+            try:
+                self._set_var(self.ACT, 0)
+                time.sleep(1.0)
+                self._set_var(self.ACT, 1)
+                time.sleep(1.0)
+                print("  → Emergency reset complete", flush=True)
+            except:
+                print("  → Emergency reset failed", flush=True)
+                raise
 
     def get_min_position(self) -> int:
         """Returns the minimum position the gripper can reach (open position)."""
@@ -238,6 +300,7 @@ class RobotiqGripper:
 
     def get_current_position(self) -> int:
         """Returns the current position as returned by the physical hardware."""
+        self._ensure_active()
         return self._get_var(self.POS)
 
     def auto_calibrate(self, log: bool = True) -> None:
@@ -347,7 +410,9 @@ class RobotiqGripper:
 
 def main():
     # test open and closing the gripper
+    # Example: For gripper_id=1 (default, robot #1)
     gripper = RobotiqGripper()
+    # For gripper_id=2 (robot #2), use: gripper = RobotiqGripper(gripper_id=2)
     gripper.connect(hostname="192.168.1.10", port=63352)
     # gripper.activate()
     print(gripper.get_current_position())

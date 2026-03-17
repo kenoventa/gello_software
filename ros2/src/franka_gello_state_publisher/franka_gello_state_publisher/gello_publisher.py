@@ -1,15 +1,18 @@
 import rclpy
+from franka_gello_state_publisher.gello_hardware import (
+    GelloHardware,
+    GelloHardwareParams,
+)
+from franka_gello_state_publisher.gello_parameter_config import (
+    GelloParameterConfig,
+    ParameterConfig,
+)
+from rcl_interfaces.msg import ParameterEvent
 from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
+from rclpy.parameter import parameter_value_to_python
 from sensor_msgs.msg import JointState
 from std_msgs.msg import Float32
-from rcl_interfaces.msg import ParameterEvent
-from rclpy.parameter import parameter_value_to_python
-from franka_gello_state_publisher.gello_hardware import GelloHardware, GelloHardwareParams
-from franka_gello_state_publisher.gello_parameter_config import (
-    ParameterConfig,
-    GelloParameterConfig,
-)
 
 
 class GelloPublisher(Node):
@@ -27,7 +30,9 @@ class GelloPublisher(Node):
             self.get_logger().error(f"Failed to initialize GELLO hardware: {e}")
             raise
 
-        self.arm_joint_publisher = self.create_publisher(JointState, "gello/joint_states", 10)
+        self.arm_joint_publisher = self.create_publisher(
+            JointState, "gello/joint_states", 10
+        )
         self.gripper_joint_publisher = self.create_publisher(
             Float32, "gripper/gripper_client/target_gripper_width_percent", 10
         )
@@ -50,7 +55,9 @@ class GelloPublisher(Node):
             if not param.name.startswith("dynamixel_"):
                 continue
             param_value = parameter_value_to_python(param.value)
-            self.gello_hardware.update_dynamixel_control_parameter(param.name, param_value)
+            self.gello_hardware.update_dynamixel_control_parameter(
+                param.name, param_value
+            )
 
     def publish_joint_jog(self) -> None:
         """Publish current joint states and gripper position."""
@@ -63,7 +70,9 @@ class GelloPublisher(Node):
             "fr3_joint6",
             "fr3_joint7",
         ]
-        [gello_arm_joints, gripper_position] = self.gello_hardware.get_joint_and_gripper_positions()
+        [gello_arm_joints, gripper_position] = (
+            self.gello_hardware.get_joint_and_gripper_positions()
+        )
 
         arm_joint_states = JointState()
         arm_joint_states.header.stamp = self.get_clock().now().to_msg()

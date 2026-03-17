@@ -26,26 +26,28 @@
 # ARISING IN ANY WAY OUT OF THE USE OF THIS SOFTWARE, EVEN IF ADVISED OF THE
 # POSSIBILITY OF SUCH DAMAGE.
 
+import os
+
 import launch
+import launch_ros
+from launch import LaunchContext, LaunchDescription
+from launch.actions import OpaqueFunction
+from launch.conditions import IfCondition
 from launch.substitutions import (
     Command,
     FindExecutable,
     LaunchConfiguration,
     PathJoinSubstitution,
 )
-from launch.conditions import IfCondition
-from launch import LaunchContext
-import launch_ros
-import os
-from launch import LaunchDescription
-from launch.actions import OpaqueFunction
 
 
 def generate_nodes(context: LaunchContext):
     description_pkg_share = launch_ros.substitutions.FindPackageShare(
         package="robotiq_description"
     ).find("robotiq_description")
-    default_rviz_config_path = os.path.join(description_pkg_share, "rviz", "view_urdf.rviz")
+    default_rviz_config_path = os.path.join(
+        description_pkg_share, "rviz", "view_urdf.rviz"
+    )
 
     gripper_pkg_share = launch_ros.substitutions.FindPackageShare(
         package="franka_gripper_manager"
@@ -75,7 +77,9 @@ def generate_nodes(context: LaunchContext):
         )
     )
     args.append(
-        launch.actions.DeclareLaunchArgument(name="com_port", description="Default COM port")
+        launch.actions.DeclareLaunchArgument(
+            name="com_port", description="Default COM port"
+        )
     )
     args.append(
         launch.actions.DeclareLaunchArgument(

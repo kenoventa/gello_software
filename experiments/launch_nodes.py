@@ -12,7 +12,10 @@ class Args:
     robot: str = "xarm"
     robot_port: int = 6001
     hostname: str = "127.0.0.1"
-    robot_ip: str = "192.168.1.10"
+    robot_ip: str = "192.168.1.20"
+    robot_ip_right: str = "192.168.1.10"
+    robot_ip_left: str = "192.168.1.20"
+    robot_ip_cb2: str = "192.168.1.4"
 
 
 def launch_robot_server(args: Args):
@@ -71,9 +74,20 @@ def launch_robot_server(args: Args):
 
             robot = XArmRobot(ip=args.robot_ip)
         elif args.robot == "ur":
+            robot_ip = args.robot_ip
             from gello.robots.ur import URRobot
 
-            robot = URRobot(robot_ip=args.robot_ip)
+            robot = URRobot(robot_ip=robot_ip)
+        elif args.robot == "ur_left":
+            robot_ip = args.robot_ip_left
+            from gello.robots.ur import URRobot
+
+            robot = URRobot(robot_ip=robot_ip)
+        elif args.robot == "ur_right":
+            robot_ip = args.robot_ip_right
+            from gello.robots.ur import URRobot
+
+            robot = URRobot(robot_ip=robot_ip)
         elif args.robot == "panda":
             from gello.robots.panda import PandaRobot
 
@@ -82,8 +96,8 @@ def launch_robot_server(args: Args):
             from gello.robots.ur import URRobot
 
             # IP for the bimanual robot setup is hardcoded
-            _robot_l = URRobot(robot_ip="192.168.2.10")
-            _robot_r = URRobot(robot_ip="192.168.1.10")
+            _robot_l = URRobot(robot_ip=args.robot_ip_left)
+            _robot_r = URRobot(robot_ip=args.robot_ip_right)
             robot = BimanualRobot(_robot_l, _robot_r)
         elif args.robot == "yam":
             from gello.robots.yam import YAMRobot

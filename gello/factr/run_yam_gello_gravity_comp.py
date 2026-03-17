@@ -5,12 +5,13 @@ Direct YAM_GELLO Gravity Compensation Script
 This script directly launches the YAM_GELLO in FACTR gravity compensation mode.
 """
 
-import sys
 import signal
-import numpy as np
-from pathlib import Path
-import pinocchio as pin
+import sys
 import time
+from pathlib import Path
+
+import numpy as np
+import pinocchio as pin
 
 # Add the gello package to the path
 sys.path.insert(0, str(Path(__file__).parent.parent.parent))

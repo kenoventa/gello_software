@@ -1,6 +1,7 @@
 from dataclasses import dataclass
-from rcl_interfaces.msg import ParameterDescriptor, ParameterType
 from typing import Any, Iterator
+
+from rcl_interfaces.msg import ParameterDescriptor, ParameterType
 
 
 @dataclass

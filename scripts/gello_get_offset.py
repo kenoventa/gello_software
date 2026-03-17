@@ -65,6 +65,21 @@ def get_config(args: Args) -> None:
     for _ in range(1):
         best_offsets = []
         curr_joints = driver.get_joints()
+
+        # DEBUG: Print actual joint readings
+        print()
+        print("=== DEBUG INFO ===")
+        print(f"Expected position (--start-joints): {list(args.start_joints)}")
+        print(
+            f"Actual GELLO reading (raw encoder): {[f'{x:.4f}' for x in curr_joints[:args.num_robot_joints]]}"
+        )
+        print(
+            f"Actual GELLO reading (degrees)    : {[f'{np.rad2deg(x):.2f}°' for x in curr_joints[:args.num_robot_joints]]}"
+        )
+        print(f"Joint signs: {list(args.joint_signs[:args.num_robot_joints])}")
+        print("==================")
+        print()
+
         for i in range(args.num_robot_joints):
             best_offset = 0
             best_error = 1e6

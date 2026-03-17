@@ -13,16 +13,13 @@ Features:
 - Zero torque mode for safe testing
 """
 
-import signal
 import sys
 import threading
 import time
 from dataclasses import dataclass
-from pathlib import Path
-from typing import Any, Dict, List, Optional, Tuple, Sequence
+from typing import Any, Dict, List, Optional, Tuple
 
 import numpy as np
-import os
 
 from gello.agents.agent import Agent
 from gello.dynamixel.driver import DynamixelDriver
@@ -571,7 +568,6 @@ class YAMGelloAgent(Agent):
 
     def start_gravity_compensation(self) -> None:
         print("Starting FACTR gravity compensation system...")
-        pass
 
     def stop_gravity_compensation(self) -> None:
         """Stop gravity compensation"""

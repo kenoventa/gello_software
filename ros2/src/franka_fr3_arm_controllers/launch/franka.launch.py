@@ -72,10 +72,14 @@
 
 import xacro
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
-from launch.actions import OpaqueFunction, Shutdown
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+    Shutdown,
+)
+from launch.conditions import IfCondition, UnlessCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.conditions import UnlessCondition, IfCondition
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.actions import Node
 from launch_ros.substitutions import FindPackageShare
@@ -87,7 +91,11 @@ from launch_ros.substitutions import FindPackageShare
 
 def generate_robot_nodes(context):
     urdf_path = PathJoinSubstitution(
-        [FindPackageShare("franka_description"), "robots", LaunchConfiguration("urdf_file")]
+        [
+            FindPackageShare("franka_description"),
+            "robots",
+            LaunchConfiguration("urdf_file"),
+        ]
     ).perform(context)
     robot_description = xacro.process_file(
         urdf_path,
@@ -98,8 +106,12 @@ def generate_robot_nodes(context):
             "arm_prefix": LaunchConfiguration("arm_prefix").perform(context),
             "robot_ip": LaunchConfiguration("robot_ip").perform(context),
             "hand": LaunchConfiguration("load_gripper").perform(context),
-            "use_fake_hardware": LaunchConfiguration("use_fake_hardware").perform(context),
-            "fake_sensor_commands": LaunchConfiguration("fake_sensor_commands").perform(context),
+            "use_fake_hardware": LaunchConfiguration("use_fake_hardware").perform(
+                context
+            ),
+            "fake_sensor_commands": LaunchConfiguration("fake_sensor_commands").perform(
+                context
+            ),
         },
     ).toprettyxml(indent="  ")
 
@@ -150,7 +162,10 @@ def generate_robot_nodes(context):
                     "joints": joint_sources,
                     "rate": joint_state_rate,
                     "use_robot_description": False,
-                    "source_list": ["franka/joint_states", "franka_gripper/joint_states"],
+                    "source_list": [
+                        "franka/joint_states",
+                        "franka_gripper/joint_states",
+                    ],
                 }
             ],
             output="screen",
@@ -175,14 +190,20 @@ def generate_robot_nodes(context):
             PythonLaunchDescriptionSource(
                 [
                     PathJoinSubstitution(
-                        [FindPackageShare("franka_gripper"), "launch", "gripper.launch.py"]
+                        [
+                            FindPackageShare("franka_gripper"),
+                            "launch",
+                            "gripper.launch.py",
+                        ]
                     )
                 ]
             ),
             launch_arguments={
                 "namespace": namespace,
                 "robot_ip": LaunchConfiguration("robot_ip").perform(context),
-                "use_fake_hardware": LaunchConfiguration("use_fake_hardware").perform(context),
+                "use_fake_hardware": LaunchConfiguration("use_fake_hardware").perform(
+                    context
+                ),
             }.items(),
             condition=IfCondition(LaunchConfiguration("load_gripper")),
         ),
@@ -200,12 +221,16 @@ def generate_launch_description():
         DeclareLaunchArgument(
             "arm_id", default_value="", description="ID of the type of arm used"
         ),
-        DeclareLaunchArgument("arm_prefix", default_value="", description="Prefix for arm topics"),
+        DeclareLaunchArgument(
+            "arm_prefix", default_value="", description="Prefix for arm topics"
+        ),
         DeclareLaunchArgument(
             "namespace", default_value="", description="Namespace for the robot"
         ),
         DeclareLaunchArgument(
-            "urdf_file", default_value="fr3/fr3.urdf.xacro", description="Path to URDF file"
+            "urdf_file",
+            default_value="fr3/fr3.urdf.xacro",
+            description="Path to URDF file",
         ),
         DeclareLaunchArgument(
             "robot_ip",
@@ -221,7 +246,9 @@ def generate_launch_description():
             "use_fake_hardware", default_value="false", description="Use fake hardware"
         ),
         DeclareLaunchArgument(
-            "fake_sensor_commands", default_value="false", description="Fake sensor commands"
+            "fake_sensor_commands",
+            default_value="false",
+            description="Fake sensor commands",
         ),
         DeclareLaunchArgument(
             "joint_sources",
@@ -235,4 +262,6 @@ def generate_launch_description():
         ),
     ]
 
-    return LaunchDescription(launch_args + [OpaqueFunction(function=generate_robot_nodes)])
+    return LaunchDescription(
+        launch_args + [OpaqueFunction(function=generate_robot_nodes)]
+    )

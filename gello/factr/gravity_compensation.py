@@ -12,9 +12,11 @@ import os
 import signal
 import subprocess
 import sys
+import threading
 import time
+from importlib import import_module
 from pathlib import Path
-from typing import Optional, Tuple
+from typing import Any, Dict, Optional, Tuple, cast
 
 import numpy as np
 import numpy.typing as npt
@@ -22,10 +24,6 @@ import pinocchio as pin
 import yaml
 
 from gello.dynamixel.driver import DynamixelDriver
-
-import threading
-from importlib import import_module
-from typing import Any, Dict, cast
 
 
 def find_ttyusb(port_name: str) -> str:
@@ -303,8 +301,8 @@ class FACTRGravityCompensation:
             return
 
         # Lazily import here to avoid adding dependencies when teleop is disabled
-        from gello.zmq_core.robot_node import ZMQClientRobot, ZMQServerRobot
         from gello.env import RobotEnv
+        from gello.zmq_core.robot_node import ZMQClientRobot, ZMQServerRobot
 
         self.teleop_enabled = True
         self.teleop_rate_hz = float(teleop_cfg.get("hz", 30))

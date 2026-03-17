@@ -3,8 +3,9 @@ import os
 import pickle
 import shutil
 from dataclasses import dataclass
-from typing import Tuple
+from typing import Dict, Tuple
 
+import h5py
 import numpy as np
 import tyro
 from natsort import natsorted
@@ -15,10 +16,73 @@ from gello.data_utils.plot_utils import plot_in_grid
 np.set_printoptions(precision=3, suppress=True)
 
 import mediapy as mp
-from gdict.data import DictArray, GDict
-from simple_bc.utils.visualization_utils import make_grid_video_from_numpy
 
 from gello.data_utils.conversion_utils import preproc_obs
+
+
+def _stack_dict_list(dict_list):
+    """Stack a list of nested dicts into a single dict with numpy arrays.
+    Replacement for DictArray.stack from gdict."""
+    if not dict_list:
+        return {}
+    keys = dict_list[0].keys()
+    result = {}
+    for key in keys:
+        values = [d[key] for d in dict_list]
+        if isinstance(values[0], dict):
+            result[key] = _stack_dict_list(values)
+        elif isinstance(values[0], np.ndarray):
+            result[key] = np.stack(values, axis=0)
+        else:
+            result[key] = np.array(values)
+    return result
+
+
+def _save_dict_to_hdf5(data: Dict, filepath: str):
+    """Save a nested dict of numpy arrays to HDF5.
+    Replacement for GDict.to_hdf5 from gdict."""
+    with h5py.File(filepath, "w") as f:
+        _write_dict_to_hdf5_group(f, data)
+
+
+def _write_dict_to_hdf5_group(group, data):
+    for key, value in data.items():
+        if isinstance(value, dict):
+            subgroup = group.create_group(key)
+            _write_dict_to_hdf5_group(subgroup, value)
+        elif isinstance(value, np.ndarray):
+            group.create_dataset(key, data=value)
+        else:
+            group.create_dataset(key, data=np.array(value))
+
+
+def _make_grid_video_from_numpy(videos, ncols, output_path, fps=30):
+    """Create a grid video from a list of numpy video arrays.
+    Replacement for make_grid_video_from_numpy from simple_bc."""
+    if not videos:
+        return
+    # Pad videos to the same length
+    max_len = max(v.shape[0] for v in videos)
+    padded = []
+    for v in videos:
+        if v.shape[0] < max_len:
+            pad = np.zeros((max_len - v.shape[0], *v.shape[1:]), dtype=v.dtype)
+            v = np.concatenate([v, pad], axis=0)
+        padded.append(v)
+
+    nrows = (len(padded) + ncols - 1) // ncols
+    # Pad list to fill grid
+    while len(padded) < nrows * ncols:
+        padded.append(np.zeros_like(padded[0]))
+
+    rows = []
+    for r in range(nrows):
+        row = np.concatenate(padded[r * ncols : (r + 1) * ncols], axis=2)
+        rows.append(row)
+    grid = np.concatenate(rows, axis=1)
+
+    mp.write_video(output_path, grid, fps=fps)
+
 
 # def get_act_bounds(source_dir: str) -> np.ndarray:
 #     pkls = natsorted(
@@ -137,8 +201,11 @@ def convert_single_demo(
         curr_ts_wrapped[f"traj_{i}"] = curr_ts
         demo_stack = [curr_ts_wrapped] + demo_stack
 
-    demo_dict = DictArray.stack(demo_stack)
-    GDict.to_hdf5(demo_dict, os.path.join(traj_output_dir + "", f"traj_{i}.h5"))
+    # Stack all timesteps: each item is {"traj_i": {"obs": ..., "actions": ...}}
+    inner_dicts = [d[f"traj_{i}"] for d in demo_stack]
+    stacked = _stack_dict_list(inner_dicts)
+    demo_dict = {f"traj_{i}": stacked}
+    _save_dict_to_hdf5(demo_dict, os.path.join(traj_output_dir, f"traj_{i}.h5"))
 
     ## save the base videos
     # save the base rgb and depth videos
@@ -203,6 +270,13 @@ class Args:
 def main(args):
     subdirs = natsorted(glob.glob(os.path.join(args.source_dir, "*/"), recursive=True))
 
+    if not subdirs:
+        print(f"ERROR: No subdirectories found in '{args.source_dir}'")
+        print("Expected directory structure: <source-dir>/<subdir_1>/<demo_files.pkl>")
+        print("                               <source-dir>/<subdir_2>/<demo_files.pkl>")
+        print("                               ...")
+        exit(1)
+
     output_dir = args.source_dir
     if output_dir[-1] == "/":
         output_dir = output_dir[:-1]
@@ -210,24 +284,24 @@ def main(args):
     output_dir = os.path.join(output_dir, "_conv")
 
     if not os.path.isdir(output_dir):
-        os.mkdir(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
 
     output_dir = os.path.join(output_dir, "multiview")
 
     if not os.path.isdir(output_dir):
-        os.mkdir(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
     else:
         print(f"Output directory {output_dir} already exists, and will be deleted")
         shutil.rmtree(output_dir)
-        os.mkdir(output_dir)
+        os.makedirs(output_dir, exist_ok=True)
 
     train_dir = os.path.join(output_dir, "train")
     val_dir = os.path.join(output_dir, "val")
 
     if not os.path.isdir(train_dir):
-        os.mkdir(train_dir)
+        os.makedirs(train_dir, exist_ok=True)
     if not os.path.isdir(val_dir):
-        os.mkdir(val_dir)
+        os.makedirs(val_dir, exist_ok=True)
 
     val_size = int(min(0.1 * len(subdirs), 10))
     val_indices = np.random.choice(len(subdirs), size=val_size, replace=False)
@@ -253,6 +327,18 @@ def main(args):
             print(f"Error: {e}")
             print(f"Skipping {subdirs[i]}")
             continue
+
+    if min_scale_factor is None or max_scale_factor is None:
+        print("ERROR: No valid data subdirectories found in", args.source_dir)
+        print("Expected subdirectories with *.pkl files. Current structure:")
+        print(f"  data/")
+        for d in subdirs:
+            print(f"    {d}")
+        print(
+            "\nPlease ensure your data is in the format: data/<subdirectory>/<frames>.pkl"
+        )
+        exit(1)
+
     bias_factor = (min_scale_factor + max_scale_factor) / 2.0
     scale_factor = (max_scale_factor - min_scale_factor) / 2.0
     scale_factor[scale_factor == 0] = 1.0
@@ -280,15 +366,15 @@ def main(args):
     depth_output_dir = os.path.join(vis_dir, "depth")
 
     if not os.path.isdir(vis_dir):
-        os.mkdir(vis_dir)
+        os.makedirs(vis_dir, exist_ok=True)
     if not os.path.isdir(state_output_dir):
-        os.mkdir(state_output_dir)
+        os.makedirs(state_output_dir, exist_ok=True)
     if not os.path.isdir(action_output_dir):
-        os.mkdir(action_output_dir)
+        os.makedirs(action_output_dir, exist_ok=True)
     if not os.path.isdir(rgb_output_dir):
-        os.mkdir(rgb_output_dir)
+        os.makedirs(rgb_output_dir, exist_ok=True)
     if not os.path.isdir(depth_output_dir):
-        os.mkdir(depth_output_dir)
+        os.makedirs(depth_output_dir, exist_ok=True)
 
     pbar = tqdm(range(len(subdirs)))
     for i in pbar:
@@ -296,7 +382,7 @@ def main(args):
         out_dir = os.path.join(out_dir, "none")
 
         if not os.path.isdir(out_dir):
-            os.mkdir(out_dir)
+            os.makedirs(out_dir, exist_ok=True)
 
         ret = convert_single_demo(
             subdirs[i],
@@ -331,10 +417,10 @@ def main(args):
                 all_actions, os.path.join(action_output_dir, "_all_actions.png")
             )
             plot_in_grid(all_states, os.path.join(state_output_dir, "_all_states.png"))
-            make_grid_video_from_numpy(
+            _make_grid_video_from_numpy(
                 all_rgbs, 10, os.path.join(rgb_output_dir, "_all_rgb.mp4"), fps=30
             )
-            make_grid_video_from_numpy(
+            _make_grid_video_from_numpy(
                 all_depths, 10, os.path.join(depth_output_dir, "_all_depth.mp4"), fps=30
             )
 

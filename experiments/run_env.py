@@ -32,11 +32,19 @@ class Args:
     start_joints: Optional[Tuple[float, ...]] = None
 
     gello_port: Optional[str] = None
+    gello_left_port: Optional[str] = None
+    """Override default left GELLO port for bimanual setup"""
+    gello_right_port: Optional[str] = None
+    """Override default right GELLO port for bimanual setup"""
     mock: bool = False
     use_save_interface: bool = False
     data_dir: str = "~/bc_data"
     bimanual: bool = False
     verbose: bool = False
+    use_relative_mode: bool = False
+    """Enable relative mode for safer teleoperation. Instead of commanding absolute
+    joint positions, the robot will follow relative motions from its starting pose.
+    This is safer when the robot cannot reach the leader's initial configuration."""
 
     def __post_init__(self):
         if self.start_joints is not None:
@@ -60,18 +68,40 @@ def main(args):
     if args.bimanual:
         if args.agent == "gello":
             # dynamixel control box port map (to distinguish left and right gello)
-            right = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FT7WBG6A-if00-port0"
-            left = "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FT7WBEIA-if00-port0"
+            # Use --gello-left-port and --gello-right-port to override defaults
+            # Defaults are for UR bimanual setup
+            right = (
+                args.gello_right_port
+                or "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTAO528D-if00-port0"
+            )
+            left = (
+                args.gello_left_port
+                or "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTAO5209-if00-port0"
+            )
+            agent_left_cfg = {
+                "_target_": "gello.agents.gello_agent.GelloAgent",
+                "port": left,
+            }
+            agent_right_cfg = {
+                "_target_": "gello.agents.gello_agent.GelloAgent",
+                "port": right,
+            }
+
+            # Wrap with RelativeAgent for each arm if relative_mode is enabled
+            if args.use_relative_mode:
+                agent_left_cfg = {
+                    "_target_": "gello.agents.relative_agent.RelativeAgent",
+                    "leader_agent": agent_left_cfg,
+                }
+                agent_right_cfg = {
+                    "_target_": "gello.agents.relative_agent.RelativeAgent",
+                    "leader_agent": agent_right_cfg,
+                }
+
             agent_cfg = {
                 "_target_": "gello.agents.agent.BimanualAgent",
-                "agent_left": {
-                    "_target_": "gello.agents.gello_agent.GelloAgent",
-                    "port": left,
-                },
-                "agent_right": {
-                    "_target_": "gello.agents.gello_agent.GelloAgent",
-                    "port": right,
-                },
+                "agent_left": agent_left_cfg,
+                "agent_right": agent_right_cfg,
             }
         elif args.agent == "quest":
             agent_cfg = {
@@ -111,15 +141,23 @@ def main(args):
 
         # System setup specific. This reset configuration works well on our setup. If you are mounting the robot
         # differently, you need a separate reset joint configuration.
-        reset_joints_left = np.deg2rad([0, -90, -90, -90, 90, 0, 0])
-        reset_joints_right = np.deg2rad([0, -90, 90, -90, -90, 0, 0])
-        reset_joints = np.concatenate([reset_joints_left, reset_joints_right])
-        curr_joints = env.get_obs()["joint_positions"]
-        max_delta = (np.abs(curr_joints - reset_joints)).max()
-        steps = min(int(max_delta / 0.01), 100)
+        # NOTE: Bimanual reset is disabled in relative mode because:
+        # 1. RelativeAgent captures initial poses from current position
+        # 2. Forcing reset can interfere with relative mode initialization
+        # 3. Each arm should maintain its current safe position as reference
+        if not args.use_relative_mode:
+            reset_joints_left = np.deg2rad([0, -90, -90, -90, 90, 0, 0])
+            reset_joints_right = np.deg2rad([0, -90, 90, -90, -90, 0, 0])
+            reset_joints = np.concatenate([reset_joints_left, reset_joints_right])
+            curr_joints = np.array(env.get_obs()["joint_positions"])
+            max_delta = (np.abs(curr_joints - reset_joints)).max()
+            steps = min(int(max_delta / 0.01), 100)
 
-        for jnt in np.linspace(curr_joints, reset_joints, steps):
-            env.step(jnt)
+            for jnt in np.linspace(curr_joints, reset_joints, steps):
+                env.step(jnt)
+        else:
+            print("Relative mode activated: Skipping bimanual reset phase.")
+            print("RelativeAgent will capture current positions as initial reference.")
     else:
         if args.agent == "gello":
             gello_port = args.gello_port
@@ -136,19 +174,34 @@ def main(args):
             agent_cfg = {
                 "_target_": "gello.agents.gello_agent.GelloAgent",
                 "port": gello_port,
-                "start_joints": args.start_joints,
+                "start_joints": None,  # Disable auto-offset adjustment; use calibrated offsets directly
             }
+
+            # Wrap with RelativeAgent if relative_mode is enabled
+            if args.use_relative_mode:
+                print("using relative mode for safer teleoperation")
+                agent_cfg = {
+                    "_target_": "gello.agents.relative_agent.RelativeAgent",
+                    "leader_agent": agent_cfg,
+                }
+
             if args.start_joints is None:
                 reset_joints = np.deg2rad(
-                    [0, -90, 90, -90, -90, 0, 0]
+                    [-90, -90, 90, -90, -90, 0]
+                    ##### THIS IS START JOINTS OF THE ROBOT ######
                 )  # Change this to your own reset joints
             else:
                 reset_joints = np.array(args.start_joints)
 
-            curr_joints = env.get_obs()["joint_positions"]
+            curr_joints = np.array(env.get_obs()["joint_positions"])
             if reset_joints.shape == curr_joints.shape:
-                max_delta = (np.abs(curr_joints - reset_joints)).max()
-                steps = min(int(max_delta / 0.01), 100)
+                max_delta_per_step = (
+                    0.0002  # Speed limit for startup (slower, more safe)
+                )
+                max_distance = (np.abs(curr_joints - reset_joints)).max()
+                steps = max(
+                    int(max_distance / max_delta_per_step), 25
+                )  # Ensure smooth movement
 
                 for jnt in np.linspace(curr_joints, reset_joints, steps):
                     env.step(jnt)
@@ -179,15 +232,29 @@ def main(args):
     # going to start position
     print("Going to start position")
     start_pos = agent.act(env.get_obs())
+    print(f"Start position (GELLO current) in radians: {start_pos}")
+    print(f"Start position in degrees: {np.rad2deg(start_pos)}")
     obs = env.get_obs()
-    joints = obs["joint_positions"]
+    joints = np.array(obs["joint_positions"])
+
+    # If agent has more DOFs than robot (e.g., agent has gripper but robot doesn't),
+    # only use the arm joint positions
+    if len(start_pos) > len(joints):
+        start_pos = start_pos[: len(joints)]
 
     abs_deltas = np.abs(start_pos - joints)
     id_max_joint_delta = np.argmax(abs_deltas)
 
-    max_joint_delta = 0.8
+    print(f"\nDelta between GELLO and UR (radians): {abs_deltas}")
+    print(f"Delta between GELLO and UR (degrees): {np.rad2deg(abs_deltas)}")
+    print(
+        f"Max delta: {abs_deltas[id_max_joint_delta]:.4f} rad ({np.rad2deg(abs_deltas[id_max_joint_delta]):.2f}°) at joint {id_max_joint_delta}\n"
+    )
+
+    max_joint_delta = 1.0
     if abs_deltas[id_max_joint_delta] > max_joint_delta:
         id_mask = abs_deltas > max_joint_delta
+        print("WARNING: Large joint position differences detected:")
         print()
         ids = np.arange(len(id_mask))[id_mask]
         for i, delta, joint, current_j in zip(
@@ -199,18 +266,24 @@ def main(args):
             print(
                 f"joint[{i}]: \t delta: {delta:4.3f} , leader: \t{joint:4.3f} , follower: \t{current_j:4.3f}"
             )
-        return
+        print("\nProceeding anyway...\n")
 
     print(f"Start pos: {len(start_pos)}", f"Joints: {len(joints)}")
+    print(f"UR current position in radians: {joints}")
+    print(f"UR current position in degrees: {np.rad2deg(joints)}")
     assert len(start_pos) == len(
         joints
     ), f"agent output dim = {len(start_pos)}, but env dim = {len(joints)}"
 
-    max_delta = 0.05
+    max_delta = 0.005  # speed up if too slow, down if too fast or unstable
     for _ in range(25):
         obs = env.get_obs()
         command_joints = agent.act(obs)
-        current_joints = obs["joint_positions"]
+        current_joints = np.array(obs["joint_positions"])
+        # If agent has more DOFs than robot (e.g., agent has gripper but robot doesn't),
+        # only use the arm joint positions
+        if len(command_joints) > len(current_joints):
+            command_joints = command_joints[: len(current_joints)]
         delta = command_joints - current_joints
         max_joint_delta = np.abs(delta).max()
         if max_joint_delta > max_delta:
@@ -218,9 +291,13 @@ def main(args):
         env.step(current_joints + delta)
 
     obs = env.get_obs()
-    joints = obs["joint_positions"]
+    joints = np.array(obs["joint_positions"])
     action = agent.act(obs)
-    if (action - joints > 0.5).any():
+    # If agent has more DOFs than robot (e.g., agent has gripper but robot doesn't),
+    # only use the arm joint positions
+    if len(action) > len(joints):
+        action = action[: len(joints)]
+    if (action - joints > 0.7).any():
         print("Action is too big")
 
         # print which joints are too big

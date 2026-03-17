@@ -180,6 +180,20 @@ def run_control_loop(
 
         action = agent.act(obs)
 
+        # Filter action to match robot DOFs (Gello has 7 DOFs with gripper, but robot may have 6)
+        robot_dofs = env.robot().num_dofs()
+        if len(action) > robot_dofs:
+            action = action[:robot_dofs]
+
+        # Limit joint velocity to prevent jerky movements
+        # current_joints = np.array(obs["joint_positions"])
+        # delta = action - current_joints
+        # max_joint_delta = np.abs(delta).max()
+        # max_delta = 0.01  # Same as in run_env.py
+        # if max_joint_delta > max_delta:
+        #     delta = delta / max_joint_delta * max_delta
+        #     action = current_joints + delta
+
         # Handle save interface
         if save_interface is not None:
             result = save_interface.update(obs, action)

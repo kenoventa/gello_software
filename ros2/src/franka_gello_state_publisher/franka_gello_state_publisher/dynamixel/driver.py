@@ -3,7 +3,6 @@ from glob import glob
 from pathlib import Path
 from threading import Event, Lock, Thread
 from typing import Protocol, Sequence
-from serial import SerialException
 
 import numpy as np
 import yaml
@@ -12,6 +11,7 @@ from dynamixel_sdk.group_sync_write import GroupSyncWrite
 from dynamixel_sdk.packet_handler import PacketHandler
 from dynamixel_sdk.port_handler import PortHandler
 from dynamixel_sdk.robotis_def import COMM_SUCCESS
+from serial import SerialException
 
 
 # Configuration loader for motor types
@@ -243,7 +243,9 @@ class DynamixelDriver(DynamixelDriverProtocol):
             # Add parameters for each Dynamixel servo to the group sync read
             for dxl_id in self._ids:
                 if not self._groupSyncReadHandlers[key].addParam(dxl_id):
-                    raise RuntimeError(f"Failed to add parameter for Dynamixel with ID {dxl_id}")
+                    raise RuntimeError(
+                        f"Failed to add parameter for Dynamixel with ID {dxl_id}"
+                    )
             if "read_only" not in entry or not entry["read_only"]:
                 self._groupSyncWriteHandlers[key] = GroupSyncWrite(
                     self._portHandler,
@@ -309,7 +311,9 @@ class DynamixelDriver(DynamixelDriverProtocol):
                 param = [(value >> (8 * i)) & 0xFF for i in range(value_length)]
                 result = groupSyncWriteHandler.addParam(dxl_id, param)
                 if not result:
-                    raise RuntimeError(f"Failed to set {name} for Dynamixel with ID {dxl_id}")
+                    raise RuntimeError(
+                        f"Failed to set {name} for Dynamixel with ID {dxl_id}"
+                    )
             comm_result = groupSyncWriteHandler.txPacket()
             if comm_result != COMM_SUCCESS:
                 result_string = self._packetHandler.getTxRxResult(comm_result)
@@ -326,7 +330,9 @@ class DynamixelDriver(DynamixelDriverProtocol):
             value_max=self._ctrl_table[name].get("max", None),
         )
 
-    def _read_group(self, name: str, groupSyncReadHandler, value_length: int) -> list[int]:
+    def _read_group(
+        self, name: str, groupSyncReadHandler, value_length: int
+    ) -> list[int]:
         with self._lock:
             result = groupSyncReadHandler.txRxPacket()
             if result != COMM_SUCCESS:
@@ -343,7 +349,9 @@ class DynamixelDriver(DynamixelDriverProtocol):
                     value = int(np.int32(np.uint32(value)))
                     values.append(value)
                 else:
-                    raise RuntimeError(f"Failed to get {name} for Dynamixel with ID {dxl_id}")
+                    raise RuntimeError(
+                        f"Failed to get {name} for Dynamixel with ID {dxl_id}"
+                    )
             return values
 
     def read_value_by_name(self, name: str) -> list[int]:
@@ -390,7 +398,9 @@ class DynamixelDriver(DynamixelDriverProtocol):
                 time.sleep(0.01)
             return self._pulses_to_rad(self._buffered_joint_positions.copy())
         else:
-            joint_positions = np.array(self.read_value_by_name("present_position"), dtype=int)
+            joint_positions = np.array(
+                self.read_value_by_name("present_position"), dtype=int
+            )
             return self._pulses_to_rad(joint_positions)
 
     def close(self) -> None:

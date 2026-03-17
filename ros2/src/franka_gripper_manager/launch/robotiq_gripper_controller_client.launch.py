@@ -1,7 +1,12 @@
 import os
+
 import yaml
 from launch import LaunchDescription
-from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription, OpaqueFunction
+from launch.actions import (
+    DeclareLaunchArgument,
+    IncludeLaunchDescription,
+    OpaqueFunction,
+)
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
 from launch_ros.substitutions import FindPackageShare
@@ -26,7 +31,11 @@ def generate_robot_nodes(context):
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(
                     PathJoinSubstitution(
-                        [FindPackageShare("franka_gripper_manager"), "launch", "robotiq.launch.py"]
+                        [
+                            FindPackageShare("franka_gripper_manager"),
+                            "launch",
+                            "robotiq.launch.py",
+                        ]
                     )
                 ),
                 launch_arguments={
