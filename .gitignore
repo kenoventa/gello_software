@@ -1,3 +1,6 @@
 third_party/DynamixelSDK
 .gitignore
-.gitignore
+/config_pose
+/data
+/third_party/*
+/gello/agents/__pycache__/

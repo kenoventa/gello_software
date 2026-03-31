@@ -70,6 +70,8 @@ def capture_teleoperation_configs(
     gello_port: Optional[str] = None,
     use_relative_mode: bool = False,
     verbose: bool = False,
+    save_pose: bool = False,
+    to_degrees: bool = False,
 ) -> Dict[str, Any]:
     """Initialize manager and capture poses from all devices."""
     try:
@@ -117,6 +119,16 @@ def main():
     gello_right_port = None
     use_relative_mode = False
     verbose = False
+    save_pose = False
+
+    # Port mappings for UR arms
+    UR_PORTS = {
+        "right": "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTAO528D-if00-port0",
+        "left": "/dev/serial/by-id/usb-FTDI_USB__-__Serial_Converter_FTAO5209-if00-port0",
+    }
+
+    # Flags to filter out from argv before passing to run_env.py
+    flags_to_remove = set()
 
     # Simple argument parsing for our needs
     for i, arg in enumerate(argv):
@@ -146,12 +158,34 @@ def main():
             gello_right_port = argv[i + 1]
         elif arg.startswith("--gello-right-port="):
             gello_right_port = arg.split("=")[1]
+        elif arg == "--ur-left":
+            gello_port = UR_PORTS["left"]
+            flags_to_remove.add(i)
+        elif arg == "--ur-right":
+            gello_port = UR_PORTS["right"]
+            flags_to_remove.add(i)
         elif arg == "--use-relative-mode":
             use_relative_mode = True
         elif arg == "--verbose":
             verbose = True
         elif arg == "-v":
             verbose = True
+        elif arg == "--save-pose":
+            save_pose = True
+
+    # Filter out teleoperate-specific flags before passing to run_env.py
+    argv_filtered = [
+        arg
+        for i, arg in enumerate(argv)
+        if i not in flags_to_remove and arg != "--save-pose"
+    ]
+
+    # Add back gello_port to argv_filtered if it was set from --ur-left or --ur-right
+    if gello_port is not None and "--gello-port" not in argv_filtered:
+        # Check if gello_port was set from --ur-left/--ur-right (not from explicit --gello-port arg)
+        has_explicit_gello_port = any("--gello-port" in arg for arg in argv)
+        if not has_explicit_gello_port:
+            argv_filtered.extend(["--gello-port", gello_port])
 
     # Infer robot type if bimanual
     if bimanual:
@@ -191,6 +225,7 @@ def main():
             gello_port=gello_port,
             use_relative_mode=use_relative_mode,
             verbose=verbose,
+            to_degrees=True,
         )
 
         session_data["config_start"] = config_start
@@ -207,18 +242,21 @@ def main():
         print(f"\n❌ Failed to capture START config: {e}")
         sys.exit(1)
 
-    # Save session before starting teleoperation
-    session_file = save_session(session_data)
-    print(f"      Session file: {session_file}")
+    # Save session before starting teleoperation, only if we plan to save the pose
+    if save_pose:
+        session_file = save_session(session_data)
+        print(f"      Session file: {session_file}")
+    else:
+        session_file = None
 
     print(f"\n[2/3] Starting teleoperation...")
-    print(f"      Running: python run_env.py {' '.join(argv)}")
+    print(f"      Running: python run_env.py {' '.join(argv_filtered)}")
     print(f"      Press Ctrl+C to stop and capture STOP config\n")
 
     # Spawn run_env.py subprocess
     run_env_path = Path(__file__).parent / "run_env.py"
     process = subprocess.Popen(
-        [sys.executable, str(run_env_path)] + argv,
+        [sys.executable, str(run_env_path)] + argv_filtered,
         stdout=sys.stdout,
         stderr=sys.stderr,
     )
@@ -237,48 +275,55 @@ def main():
     # Wait for subprocess to finish
     return_code = process.wait()
 
-    # Capture STOP
-    print(f"      Capturing STOP configuration...")
-    try:
-        config_stop = capture_teleoperation_configs(
-            robot_type=robot_type,
-            bimanual=bimanual,
-            hostname=hostname,
-            robot_port=robot_port,
-            gello_left_port=gello_left_port,
-            gello_right_port=gello_right_port,
-            gello_port=gello_port,
-            use_relative_mode=use_relative_mode,
-            verbose=False,  # Keep quiet
-        )
+    if save_pose:
+        # Capture STOP
+        print(f"      Capturing STOP configuration...")
+        try:
+            config_stop = capture_teleoperation_configs(
+                robot_type=robot_type,
+                bimanual=bimanual,
+                hostname=hostname,
+                robot_port=robot_port,
+                gello_port=gello_port,
+                gello_left_port=gello_left_port,
+                gello_right_port=gello_right_port,
+                use_relative_mode=use_relative_mode,
+                verbose=False,  # Keep quiet
+                to_degrees=True,
+            )
 
-        session_data["config_stop"] = config_stop
+            session_data["config_stop"] = config_stop
 
-        # Update timestamps
-        now = datetime.now(timezone.utc)
-        session_data["timestamp_stop"] = now.isoformat()
-        session_data["timestamp_stop_unix"] = now.timestamp()
+            # Update timestamps
+            now = datetime.now(timezone.utc)
+            session_data["timestamp_stop"] = now.isoformat()
+            session_data["timestamp_stop_unix"] = now.timestamp()
 
-        if verbose:
-            print(f"      ✓ STOP config captured")
-            for device, joints in config_stop.items():
-                if joints:
-                    print(f"        - {device}: {len(joints)} joints")
-        else:
-            print(f"      ✓ STOP config captured")
+            if verbose:
+                print(f"      ✓ STOP config captured")
+                for device, joints in config_stop.items():
+                    if joints:
+                        print(f"        - {device}: {len(joints)} joints")
+            else:
+                print(f"      ✓ STOP config captured")
 
-    except Exception as e:
-        print(f"      ⚠ Failed to capture STOP config: {e}")
-        print(f"      (You can capture it later if needed)")
+        except Exception as e:
+            print(f"      ⚠ Failed to capture STOP config: {e}")
+            print(f"      (You can capture it later if needed)")
 
-    # Update session file with STOP config
-    save_session(session_data)
+        # Update session file with STOP config
+        save_session(session_data)
+    else:
+        print(f"\n[3/3] Skipping STOP configuration capture (--save-pose not used)")
 
     print(f"\n" + "=" * 80)
     print(f"✓ TELEOPERATION COMPLETE")
     print("=" * 80)
     print(f"Session ID:     {session_id}")
-    print(f"Session file:   {session_file}")
+    if session_file:
+        print(f"Session file:   {session_file}")
+    else:
+        print(f"Session file:   (not saved, use --save-pose to enable)")
     print(f"Both configs saved in single file")
     print()
 

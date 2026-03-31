@@ -254,6 +254,21 @@ class RobotiqGripper:
                     try:
                         self.activate(auto_calibrate=False)
                         print("  → Activation successful!", flush=True)
+                        # IMPORTANT: Need to calibrate position range after activation
+                        print(
+                            "  → Auto-calibrating gripper position range...", flush=True
+                        )
+                        try:
+                            self.auto_calibrate(log=True)
+                            print("  → Gripper ready for operation!", flush=True)
+                        except Exception as calib_error:
+                            print(
+                                f"  ⚠ Auto-calibration failed: {calib_error}",
+                                flush=True,
+                            )
+                            print(
+                                "  → Proceeding anyway with default ranges", flush=True
+                            )
                         return
                     except ValueError as e:
                         print(f"  → Attempt {attempt+1} failed: {e}", flush=True)

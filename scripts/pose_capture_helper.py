@@ -23,6 +23,13 @@ import numpy as np
 sys.path.insert(0, str(Path(__file__).parent.parent))
 
 
+def rad_to_deg(joints: Optional[list]) -> Optional[list]:
+    """Convert a list of joint angles from radians to degrees."""
+    if joints is None:
+        return None
+    return np.rad2deg(joints).tolist()
+
+
 class PoseCaptureManager:
     """Manages pose capture with timestamp and formatting."""
 
@@ -174,6 +181,13 @@ class PoseCaptureManager:
                     gello_poses["gello_right"] = None
 
             result.update(gello_poses)
+
+            # Convert to degrees
+            result["robot_left"] = rad_to_deg(result.get("robot_left"))
+            result["robot_right"] = rad_to_deg(result.get("robot_right"))
+            result["gello_left"] = rad_to_deg(result.get("gello_left"))
+            result["gello_right"] = rad_to_deg(result.get("gello_right"))
+
             return result
 
         except Exception as e:

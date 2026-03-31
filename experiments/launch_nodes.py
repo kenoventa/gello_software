@@ -15,7 +15,6 @@ class Args:
     robot_ip: str = "192.168.1.20"
     robot_ip_right: str = "192.168.1.10"
     robot_ip_left: str = "192.168.1.20"
-    robot_ip_cb2: str = "192.168.1.4"
 
 
 def launch_robot_server(args: Args):
